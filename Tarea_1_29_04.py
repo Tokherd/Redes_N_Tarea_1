@@ -1,7 +1,7 @@
 # canal de blanco y negro = 1
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
+from sklearn.utils import shuffle
 import numpy as np
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.utils import to_categorical
@@ -34,6 +34,11 @@ directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 
 # Llamar a la función
 X_train, X_test, y_train, y_test = extraer_imagenes(directorio_train, directorio_test)
+
+# Mezclar los datos de entrenamiento y prueba
+# para que no asigne de manera secuencial
+X_train, y_train = shuffle(X_train, y_train, random_state=42)
+X_test, y_test = shuffle(X_test, y_test, random_state=42)
 
 # Imprimir formas de los datos
 print("X_train shape:", X_train.shape)
