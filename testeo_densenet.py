@@ -37,7 +37,7 @@ def extraer_imagenes(directorio_train: str, directorio_test: str):
             carpeta_path = os.path.join(directorio, carpeta)
             for imagen_archivo in os.listdir(carpeta_path):
                 img_path = os.path.join(carpeta_path, imagen_archivo)
-                foto = image.load_img(img_path, target_size=(256, 256,1), color_mode='grayscale')
+                foto = image.load_img(img_path, target_size=(64, 64,1), color_mode='grayscale')
                 imagenes.append(np.expand_dims(np.array(foto), axis=-1))  # Expandir canal
                 clases.append(idx)
         clases = to_categorical(clases)
@@ -50,7 +50,7 @@ def extraer_imagenes(directorio_train: str, directorio_test: str):
 
 # ========== CARGA DE DATOS ==========
 (X_train, y_train), (X_test, y_test) = extraer_imagenes(directorio_train, directorio_test)
-input_shape = (256, 256, 1)
+input_shape = (64, 64, 1)
 num_classes = y_train.shape[1]
 
 # ========== MODELO ==========
