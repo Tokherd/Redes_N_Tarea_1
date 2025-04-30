@@ -1,48 +1,49 @@
-# canal de blanco y negro = 1
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-from sklearn.utils import shuffle
+os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import numpy as np
+import math
+import time
+from sklearn.utils import shuffle
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Dropout, concatenate
+from tensorflow.keras.layers import AveragePooling2D, Flatten, Dense
+from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, LearningRateScheduler
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# ========== CONFIGURACIÓN ==========
+
+directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
+directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
+batch_size = 8
+epochs = 200
+data_augmentation = True
+growth_rate = 12
+depth = 100
+num_dense_blocks = 3
+compression_factor = 0.5
+use_max_pool = False
+
+# ========== FUNCIÓN DE CARGA ==========
 def extraer_imagenes(directorio_train: str, directorio_test: str):
     def cargar_imagenes(directorio):
         clases = []
         imagenes = []
-        lista_carpetas = os.listdir(directorio)
-        contador = 0
-        for carpeta_clases in lista_carpetas:
-            for imagen in os.listdir(os.path.join(directorio, carpeta_clases)):
-                foto = image.load_img(os.path.join(directorio, carpeta_clases, imagen), target_size=(256, 256, 1),color_mode='grayscale')
-                imagenes.append(np.array(foto))
-                clases.append(contador)
-            contador += 1
-        clases = np.array(clases)
+        lista_carpetas = sorted(os.listdir(directorio))
+        for idx, carpeta in enumerate(lista_carpetas):
+            carpeta_path = os.path.join(directorio, carpeta)
+            for imagen_archivo in os.listdir(carpeta_path):
+                img_path = os.path.join(carpeta_path, imagen_archivo)
+                foto = image.load_img(img_path, target_size=(256, 256), color_mode='grayscale')
+                imagenes.append(np.expand_dims(np.array(foto), axis=-1))  # Expandir canal
+                clases.append(idx)
         clases = to_categorical(clases)
-        imagenes = np.array(imagenes, dtype=np.float32) / 255  # Normalizar imágenes
+        imagenes = np.array(imagenes, dtype=np.float32) / 255.0
         return imagenes, clases
-
-    # Cargar imágenes y clases para entrenamiento y prueba
     X_train, y_train = cargar_imagenes(directorio_train)
     X_test, y_test = cargar_imagenes(directorio_test)
-
-    return X_train, X_test, y_train, y_test
-
-# Directorios de entrenamiento y prueba
-directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
-directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-
-# Llamar a la función
-X_train, X_test, y_train, y_test = extraer_imagenes(directorio_train, directorio_test)
-
-# Mezclar los datos de entrenamiento y prueba
-# para que no asigne de manera secuencial
-X_train, y_train = shuffle(X_train, y_train, random_state=42)
-X_test, y_test = shuffle(X_test, y_test, random_state=42)
-
-# Imprimir formas de los datos
-print("X_train shape:", X_train.shape)
-print("X_test shape:", X_test.shape)
-print("y_train shape:", y_train.shape)
-print("y_test shape:", y_test.shape)
+    return shuffle(X_train, y_train, random_state=42), shuffle(X_test, y_test, random_state=42)
 
