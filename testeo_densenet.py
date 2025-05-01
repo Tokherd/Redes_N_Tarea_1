@@ -1,67 +1,82 @@
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-
 import numpy as np
 import math
 import time
-from sklearn.utils import shuffle
-from tensorflow.keras.preprocessing import image
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Dropout, concatenate
 from tensorflow.keras.layers import AveragePooling2D, Flatten, Dense
 from tensorflow.keras.optimizers import RMSprop
-from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, LearningRateScheduler, EarlyStopping
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
+from tensorflow.keras import backend as K
+import gc
+import matplotlib.pyplot as plt
+
+# ======= GPU: limitar uso de memoria =======
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        print(e)
 
 # ========== CONFIGURACIÓN ==========
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 4
+batch_size = 64
 epochs = 200
-data_augmentation = True
-growth_rate = 12
+growth_rate = 8
 depth = 100
 num_dense_blocks = 3
 compression_factors = [0.3, 0.5, 0.7]
-use_max_pool = False
-
-# ========== PLAN DE APRENDIZAJE ==========
-def lr_schedule(epoch):
-    lr = 1e-3
-    if epoch > 150:
-        lr *= 0.1**2
-    elif epoch > 100:
-        lr *= 0.1
-    print(f"Learning rate for epoch {epoch}: {lr}")
-    return lr
-
-# ========== FUNCIÓN DE CARGA ==========
-def extraer_imagenes(directorio_train, directorio_test):
-    def cargar_imagenes(directorio):
-        clases = []
-        imagenes = []
-        carpetas = sorted(os.listdir(directorio))
-        for idx, carpeta in enumerate(carpetas):
-            carpeta_path = os.path.join(directorio, carpeta)
-            for img_archivo in os.listdir(carpeta_path):
-                img_path = os.path.join(carpeta_path, img_archivo)
-                foto = image.load_img(img_path, target_size=(64, 64), color_mode='grayscale')
-                imagen = np.array(foto).astype(np.float32) / 255.0
-                imagen = np.expand_dims(imagen, axis=-1)
-                imagenes.append(imagen)
-                clases.append(idx)
-        return np.array(imagenes), to_categorical(clases)
-
-    X_train, y_train = cargar_imagenes(directorio_train)
-    X_test, y_test = cargar_imagenes(directorio_test)
-    return shuffle(X_train, y_train, random_state=42), (X_test, y_test)
-
-# ========== CARGA ==========
-(X_train, y_train), (X_test, y_test) = extraer_imagenes(directorio_train, directorio_test)
 input_shape = (64, 64, 1)
-num_classes = y_train.shape[1]
+target_size = (64, 64)
+
+# ========== FUNCIONES DE CARGA DESDE DISCO CON O SIN AUMENTO DE DATOS ==========
+def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=False):
+    if augmentation:
+        # Si se quiere aumento de datos
+        train_datagen = ImageDataGenerator(
+            rescale=1./255,
+            width_shift_range=0.1,
+            height_shift_range=0.1,
+            horizontal_flip=True
+        )
+    else:
+        # Si no se quiere aumento de datos
+        train_datagen = ImageDataGenerator(rescale=1./255)
+
+    # Carga de datos de prueba siempre sin aumento
+    test_datagen = ImageDataGenerator(rescale=1./255)
+
+    # Generadores para entrenamiento y validación
+    train_gen = train_datagen.flow_from_directory(
+        train_dir,
+        target_size=target_size,
+        color_mode='grayscale',
+        batch_size=batch_size,
+        class_mode='categorical'
+    )
+
+    test_gen = test_datagen.flow_from_directory(
+        test_dir,
+        target_size=target_size,
+        color_mode='grayscale',
+        batch_size=batch_size,
+        class_mode='categorical',
+        shuffle=False
+    )
+
+    return train_gen, test_gen
+
+train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
+
+num_classes = train_gen.num_classes
 
 # ========== LOOP PARA CADA COMPRESIÓN ==========
 for compression_factor in compression_factors:
@@ -81,6 +96,7 @@ for compression_factor in compression_factors:
             y = BatchNormalization()(x)
             y = Activation('relu')(y)
             y = Conv2D(4 * growth_rate, kernel_size=1, padding='same', kernel_initializer='he_normal')(y)
+            y = Dropout(0.3)(y)
             y = BatchNormalization()(y)
             y = Activation('relu')(y)
             y = Conv2D(growth_rate, kernel_size=3, padding='same', kernel_initializer='he_normal')(y)
@@ -91,6 +107,7 @@ for compression_factor in compression_factors:
             num_filters_bef_dense_block = int(num_filters_bef_dense_block * compression_factor)
             y = BatchNormalization()(x)
             y = Conv2D(num_filters_bef_dense_block, kernel_size=1, padding='same', kernel_initializer='he_normal')(y)
+            y = Dropout(0.3)(y)
             x = AveragePooling2D(pool_size=2)(y)
 
     x = AveragePooling2D(pool_size=4)(x)
@@ -108,38 +125,79 @@ for compression_factor in compression_factors:
 
     best_model_path = os.path.join(save_dir, f'{tag}_best.keras')
     checkpoint = ModelCheckpoint(best_model_path, monitor='val_accuracy', save_best_only=True, verbose=1)
-    lr_scheduler = LearningRateScheduler(lr_schedule)
     lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), patience=5, min_lr=5e-7, verbose=1)
     early_stopping = EarlyStopping(monitor='val_accuracy', patience=10, restore_best_weights=True, verbose=1)
 
-    callbacks = [checkpoint, lr_reducer, lr_scheduler, early_stopping]
+    callbacks = [checkpoint, lr_reducer, early_stopping]
 
     # ========== ENTRENAMIENTO ==========
     start_time = time.time()
-    if not data_augmentation:
-        model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs,
-                  validation_data=(X_test, y_test), shuffle=True, callbacks=callbacks)
-    else:
-        print('Using real-time data augmentation...')
-        datagen = ImageDataGenerator(
-            width_shift_range=0.1,
-            height_shift_range=0.1,
-            horizontal_flip=True
-        )
-        datagen.fit(X_train)
-        steps_per_epoch = math.ceil(len(X_train) / batch_size)
-        model.fit(datagen.flow(X_train, y_train, batch_size=batch_size),
-                  steps_per_epoch=steps_per_epoch,
-                  epochs=epochs,
-                  validation_data=(X_test, y_test),
-                  callbacks=callbacks,
-                  verbose=2)
+    steps_per_epoch = math.ceil(train_gen.samples / batch_size)
+    validation_steps = math.ceil(test_gen.samples / batch_size)
 
+    history = model.fit(
+        train_gen,
+        steps_per_epoch=steps_per_epoch,
+        validation_data=test_gen,
+        validation_steps=validation_steps,
+        epochs=epochs,
+        callbacks=callbacks,
+        verbose=2
+    )
     end_time = time.time()
     print(f"[TIME] Compression {compression_factor} -> {end_time - start_time:.2f} seconds")
 
     # ========== EVALUACIÓN ==========
     model.load_weights(best_model_path)
-    scores = model.evaluate(X_test, y_test, verbose=0)
+    scores = model.evaluate(test_gen, steps=validation_steps, verbose=0)
     print(f"[RESULT] Compression {compression_factor} -> Test loss: {scores[0]:.4f}, Test accuracy: {scores[1]:.4f}")
 
+    # ========== GUARDAR MODELO COMPLETO EN .h5 ==========
+    h5_model_path = os.path.join(save_dir, f'{tag}_best_model.h5')
+    model.save(h5_model_path)
+    print(f"[SAVE] Modelo guardado en formato HDF5: {h5_model_path}")
+
+    # ========== GUARDAR RESULTADOS ==========
+    output_dir = os.path.join(save_dir, "resultados")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Guardar métricas finales
+    np.save(os.path.join(output_dir, 'test_loss.npy'), scores[0])
+    np.save(os.path.join(output_dir, 'test_accuracy.npy'), scores[1])
+    np.save(os.path.join(output_dir, 'execution_time.npy'), end_time - start_time)
+
+    # Guardar historial de entrenamiento
+    np.save(os.path.join(output_dir, 'train_loss.npy'), history.history['loss'])
+    np.save(os.path.join(output_dir, 'val_loss.npy'), history.history['val_loss'])
+    np.save(os.path.join(output_dir, 'train_acc.npy'), history.history['accuracy'])
+    np.save(os.path.join(output_dir, 'val_acc.npy'), history.history['val_accuracy'])
+
+    # ========== GRAFICAR CURVAS ==========
+    # Curva de pérdida
+    plt.figure(figsize=(10, 5))
+    plt.plot(history.history['loss'], label='Entrenamiento')
+    plt.plot(history.history['val_loss'], label='Validación')
+    plt.title(f'Curva de pérdida (Compression {compression_factor})')
+    plt.xlabel('Épocas')
+    plt.ylabel('Pérdida')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, 'curva_perdida.png'))
+    plt.close()
+
+    # Curva de precisión
+    plt.figure(figsize=(10, 5))
+    plt.plot(history.history['accuracy'], label='Entrenamiento')
+    plt.plot(history.history['val_accuracy'], label='Validación')
+    plt.title(f'Curva de precisión (Compression {compression_factor})')
+    plt.xlabel('Épocas')
+    plt.ylabel('Precisión')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_dir, 'curva_precision.png'))
+    plt.close()
+
+    # ========== LIBERAR MEMORIA ==========
+    del model
+    K.clear_session()
+    gc.collect()
