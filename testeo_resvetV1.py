@@ -1,6 +1,6 @@
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import math
 import numpy as np
 import tensorflow as tf
@@ -14,25 +14,33 @@ from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler, R
 from tensorflow.keras.regularizers import l2
 import matplotlib.pyplot as plt
 import time
+
 # ========== CONFIGURACIÓN ==========
+
+# Definición de directorios
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 batch_size = 64
 epochs = 200
-depth = 20  # Debe cumplir que (depth - 2) % 6 == 0. Ej: 20, 32, 44, 56, 110
-version = 1  # Estamos usando ResNet v1
+depth = 16  # Profundidad de la red ResNet
+version = 1  # Usamos ResNet v1
 
 input_shape = (128, 128, 1)
 target_size = (128, 128)
 
 # ========== CARGA DE DATOS ==========
+
+# Función para crear generadores de datos con más augmentaciones
 def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=True):
     if augmentation:
         train_datagen = ImageDataGenerator(
             rescale=1./255,
             width_shift_range=0.1,
             height_shift_range=0.1,
-            horizontal_flip=True
+            horizontal_flip=True,
+            rotation_range=20,         # Rotación aleatoria de las imágenes
+            zoom_range=0.2,            # Zoom aleatorio
+            brightness_range=[0.8, 1.2] # Ajuste aleatorio del brillo
         )
     else:
         train_datagen = ImageDataGenerator(rescale=1./255)
@@ -60,6 +68,25 @@ def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=12
 
 train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
 num_classes = train_gen.num_classes
+
+# ========== CÁLCULO DE PESOS DE CLASE ==========
+
+def calcular_pesos_de_clase(train_gen):
+    # Obtener el número total de imágenes y las frecuencias de cada clase
+    class_freqs = np.zeros(train_gen.num_classes)
+    for _, labels in train_gen:
+        for i, label in enumerate(labels):
+            class_freqs += label  # Sumar la cantidad de veces que aparece cada clase
+    
+    # Calcular el peso inverso para cada clase basado en su frecuencia
+    total_images = np.sum(class_freqs)
+    class_weights = total_images / (train_gen.num_classes * class_freqs)
+    
+    return class_weights
+
+# Obtener los pesos de clase
+class_weights = calcular_pesos_de_clase(train_gen)
+print("Pesos de clase calculados:", class_weights)
 
 # ========== FUNCIONES DE RESNET ==========
 
@@ -103,7 +130,7 @@ def resnet_layer(inputs, num_filters=16, kernel_size=3, strides=1,
 def resnet_v1(input_shape, depth, num_classes=10):
     if (depth - 2) % 6 != 0:
         raise ValueError('La profundidad debe ser 6n+2 (por ejemplo: 20, 32, 44, 56, 110)')
-    
+
     num_filters = 16
     num_res_blocks = int((depth - 2) / 6)
 
@@ -133,6 +160,7 @@ def resnet_v1(input_shape, depth, num_classes=10):
     return model
 
 # ========== COMPILACIÓN Y CALLBACKS ==========
+
 model = resnet_v1(input_shape=input_shape, depth=depth, num_classes=num_classes)
 model.compile(loss='categorical_crossentropy',
               optimizer=Adam(learning_rate=lr_schedule(0)),
@@ -148,7 +176,7 @@ filepath = os.path.join(save_dir, model_name)
 
 checkpoint = ModelCheckpoint(filepath=filepath,
                              monitor='val_accuracy',
-                             verbose=1,
+                             verbose=2,
                              save_best_only=True)
 
 lr_scheduler = LearningRateScheduler(lr_schedule)
@@ -158,23 +186,32 @@ lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
                                min_lr=0.5e-6)
 
 callbacks = [checkpoint, lr_reducer, lr_scheduler]
+
 # ========== MEDIR TIEMPO DE ENTRENAMIENTO ==========
+
 start_time = time.time()
-# ========== ENTRENAMIENTO ==========
+
+# ========== ENTRENAMIENTO ========== 
 print('Usando generadores con aumento de datos...')
-model = model.fit(train_gen,
+history = model.fit(train_gen,
                     epochs=epochs,
                     validation_data=test_gen,
                     callbacks=callbacks,
+                    class_weight=class_weights,  # Agregar los pesos de clase
                     verbose=2)
+
 end_time = time.time()
 execution_time = end_time - start_time
-print(" Tiempo total de entrenamiento (segundos):", execution_time)
+print("Tiempo total de entrenamiento (segundos):", execution_time)
+
 # ========== EVALUACIÓN FINAL ==========
-scores = model.evaluate(test_gen, verbose=0)
+
+scores = model.evaluate(test_gen, verbose=2)
 print('Pérdida en test:', scores[0])
 print('Precisión en test:', scores[1])
+
 # ========== GUARDAR RESULTADOS ==========
+
 output_dir = 'resultados_resnetv1'
 os.makedirs(output_dir, exist_ok=True)
 
@@ -184,16 +221,17 @@ np.save(os.path.join(output_dir, 'test_accuracy.npy'), scores[1])
 np.save(os.path.join(output_dir, 'execution_time.npy'), execution_time)
 
 # Guardar historial de entrenamiento
-np.save(os.path.join(output_dir, 'train_loss.npy'), model.history['loss'])
-np.save(os.path.join(output_dir, 'val_loss.npy'), model.history['val_loss'])
-np.save(os.path.join(output_dir, 'train_acc.npy'), model.history['accuracy'])
-np.save(os.path.join(output_dir, 'val_acc.npy'), model.history['val_accuracy'])
+np.save(os.path.join(output_dir, 'train_loss.npy'), history.history['loss'])
+np.save(os.path.join(output_dir, 'val_loss.npy'), history.history['val_loss'])
+np.save(os.path.join(output_dir, 'train_acc.npy'), history.history['accuracy'])
+np.save(os.path.join(output_dir, 'val_acc.npy'), history.history['val_accuracy'])
 
 # ========== GRAFICAR CURVAS ==========
+
 # Curva de pérdida
 plt.figure(figsize=(10, 5))
-plt.plot(model.history['loss'], label='Entrenamiento')
-plt.plot(model.history['val_loss'], label='Validación')
+plt.plot(history.history['loss'], label='Entrenamiento')
+plt.plot(history.history['val_loss'], label='Validación')
 plt.title('Curva de pérdida')
 plt.xlabel('Épocas')
 plt.ylabel('Pérdida')
@@ -204,8 +242,8 @@ plt.close()
 
 # Curva de precisión
 plt.figure(figsize=(10, 5))
-plt.plot(model.history['accuracy'], label='Entrenamiento')
-plt.plot(model.history['val_accuracy'], label='Validación')
+plt.plot(history.history['accuracy'], label='Entrenamiento')
+plt.plot(history.history['val_accuracy'], label='Validación')
 plt.title('Curva de precisión')
 plt.xlabel('Épocas')
 plt.ylabel('Precisión')
