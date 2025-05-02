@@ -28,28 +28,31 @@ if gpus:
 # ========== CONFIGURACIÓN ==========
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 64
+batch_size = 128
 epochs = 200
-growth_rate = 8
+growth_rate = 12
 depth = 100
-num_dense_blocks = 3
+num_dense_blocks = 5
 compression_factors = [0.3, 0.5, 0.7]
-input_shape = (64, 64, 1)
-target_size = (64, 64)
+input_shape = (128, 128, 1)
+target_size = (128, 128)
 
-# ========== FUNCIONES DE CARGA DESDE DISCO CON O SIN AUMENTO DE DATOS ==========
-def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=False):
+# FUNCIONES DE CARGA DESDE DISCO CON O SIN AUMENTO DE DATOS 
+def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=False):
     if augmentation:
-        # Si se quiere aumento de datos
         train_datagen = ImageDataGenerator(
-            rescale=1./255,
+            rescale=1. / 255,
+            rotation_range=10,
             width_shift_range=0.1,
             height_shift_range=0.1,
-            horizontal_flip=True
+            shear_range=0.1,
+            zoom_range=0.1,
+            horizontal_flip=True,
+            validation_split=0.2
         )
     else:
         # Si no se quiere aumento de datos
-        train_datagen = ImageDataGenerator(rescale=1./255)
+        train_datagen = ImageDataGenerator(rescale=1./255)  # Corregido aquí
 
     # Carga de datos de prueba siempre sin aumento
     test_datagen = ImageDataGenerator(rescale=1./255)
@@ -74,8 +77,9 @@ def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, 
 
     return train_gen, test_gen
 
-train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
 
+train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
+#train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=False)
 num_classes = train_gen.num_classes
 
 # ========== LOOP PARA CADA COMPRESIÓN ==========
@@ -86,10 +90,13 @@ for compression_factor in compression_factors:
     num_filters_bef_dense_block = 2 * growth_rate
 
     inputs = Input(shape=input_shape)
-    x = BatchNormalization()(inputs)
+    x = Conv2D(2 * growth_rate, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal')(inputs)
+    x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    x = Conv2D(num_filters_bef_dense_block, kernel_size=3, padding='same', kernel_initializer='he_normal')(x)
-    x = concatenate([inputs, x])
+    x = AveragePooling2D(pool_size=3, strides=2, padding='same')(x)
+
+
+
 
     for i in range(num_dense_blocks):
         for j in range(num_bottleneck_layers):
@@ -110,12 +117,12 @@ for compression_factor in compression_factors:
             y = Dropout(0.3)(y)
             x = AveragePooling2D(pool_size=2)(y)
 
-    x = AveragePooling2D(pool_size=4)(x)
+    x = AveragePooling2D(pool_size=2)(x)
     x = Flatten()(x)
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(x)
 
     model = Model(inputs=inputs, outputs=outputs)
-    model.compile(loss='categorical_crossentropy', optimizer=RMSprop(learning_rate=1e-3), metrics=['accuracy'])
+    model.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), metrics=['accuracy'])
     model.summary()
 
     # ========== CALLBACKS ==========
@@ -201,3 +208,4 @@ for compression_factor in compression_factors:
     del model
     K.clear_session()
     gc.collect()
+
