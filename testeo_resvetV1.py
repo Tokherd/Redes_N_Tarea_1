@@ -1,6 +1,6 @@
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import math
 import numpy as np
 import tensorflow as tf
@@ -22,16 +22,16 @@ directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 batch_size = 64
 epochs = 200
-depth = 16  # Profundidad de la red ResNet
+depth = 104  # Profundidad de la red ResNet
 version = 1  # Usamos ResNet v1
 
-input_shape = (128, 128, 1)
-target_size = (128, 128)
+input_shape = (64, 64, 1)
+target_size = (64, 64)
 
 # ========== CARGA DE DATOS ==========
 
 # Función para crear generadores de datos con más augmentaciones
-def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=True):
+def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=True):
     if augmentation:
         train_datagen = ImageDataGenerator(
             rescale=1./255,

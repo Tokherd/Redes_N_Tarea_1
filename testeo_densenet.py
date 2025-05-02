@@ -15,7 +15,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.layers import (Input, Conv2D, BatchNormalization, Activation, Dropout,
-                                     concatenate, AveragePooling2D, Flatten, Dense, GlobalAveragePooling2D)
+                                     concatenate, AveragePooling2D, Flatten, Dense, GlobalAveragePooling2D,MaxPooling2D)
 from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
@@ -40,8 +40,8 @@ growth_rate = 20
 depth = 100
 num_dense_blocks = 5
 compression_factors = [0.3, 0.5, 0.7]
-input_shape = (128, 128, 1)
-target_size = (128, 128)
+input_shape = (64, 64, 1)
+target_size = (64, 64)
 
 # ======================== FUNCIONES ========================
 
@@ -50,7 +50,7 @@ def calcular_pesos_clase(generator):
     pesos = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(etiquetas), y=etiquetas)
     return dict(enumerate(pesos))
 
-def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=False):
+def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=False):
     if augmentation:
         train_datagen = ImageDataGenerator(
             rescale=1/255,
@@ -107,16 +107,16 @@ for compression_factor in compression_factors:
     best_model_path = os.path.join(save_dir, f'{tag}_best.keras')
     checkpoint = ModelCheckpoint(best_model_path, monitor='val_accuracy', save_best_only=True, verbose=1)
     lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), patience=5, min_lr=5e-7, verbose=1)
-    early_stopping = EarlyStopping(monitor='val_accuracy', patience=10, restore_best_weights=True, verbose=1)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     callbacks = [checkpoint, lr_reducer, early_stopping]
 
     # ==== MODELO ====
     inputs = Input(shape=input_shape)
-    x = Conv2D(2 * growth_rate, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal',
+    x = Conv2D(2 * growth_rate, kernel_size=3, strides=1, padding='same', kernel_initializer='he_normal',
                kernel_regularizer=l2(1e-4))(inputs)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    x = AveragePooling2D(pool_size=3, strides=2, padding='same')(x)
+    x = MaxPooling2D(pool_size=3, strides=2, padding='same')(x)
 
     num_bottleneck_layers = (depth - 4) // num_dense_blocks // 2
     num_filters_bef_dense_block = 2 * growth_rate

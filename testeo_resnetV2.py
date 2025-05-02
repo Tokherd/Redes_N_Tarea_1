@@ -2,7 +2,7 @@ import time
 import numpy as np
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import csv
 import math
 from keras import backend as K
@@ -22,9 +22,9 @@ num_classes = 7
 epochs = 200
 data_augmentation = True
 model_type = 'ResNet20v2'
-depth = 100
-input_shape = (128, 128, 1)
-target_size = (128, 128)
+depth = 101
+input_shape = (64, 64, 1)
+target_size = (64, 64)
 
 # ---------- CARGA DE DATOS Y CALCULO DE PESOS DE CLASE ----------
 def calcular_pesos_de_clase(train_dir, batch_size=128):
@@ -36,15 +36,16 @@ def calcular_pesos_de_clase(train_dir, batch_size=128):
         batch_size=batch_size,
         class_mode='categorical'
     )
-    
-    # Calcular la frecuencia de las clases
+
     class_frequencies = np.bincount(train_gen.classes)
     total_samples = len(train_gen.classes)
     
-    # Calcular los pesos de las clases
-    class_weights = total_samples / (len(class_frequencies) * class_frequencies)
-    
+    # Cálculo correcto como diccionario
+    class_weights_array = total_samples / (len(class_frequencies) * class_frequencies)
+    class_weights = {i: weight for i, weight in enumerate(class_weights_array)}
+
     return class_weights
+
 
 # Función de generadores de datos con augmentación avanzada
 def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=True):
