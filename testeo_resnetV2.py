@@ -14,14 +14,53 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.optimizers import Adam
 import matplotlib.pyplot as plt
 # ---------- CONFIGURACIÓN GENERAL ----------
+directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
+directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 batch_size = 128
-num_classes = 10
+num_classes = 7
 epochs = 200
 data_augmentation = True
 model_type = 'ResNet20v2'
 depth = 20  # por ejemplo
-input_shape = (32, 32, 3)
+input_shape = (128, 128, 1)
+input_shape = (128, 128, 1)
+target_size = (128, 128)
 
+# ========== CARGA DE DATOS ==========
+def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=True):
+    if augmentation:
+        train_datagen = ImageDataGenerator(
+            rescale=1./255,
+            width_shift_range=0.1,
+            height_shift_range=0.1,
+            horizontal_flip=True
+        )
+    else:
+        train_datagen = ImageDataGenerator(rescale=1./255)
+
+    test_datagen = ImageDataGenerator(rescale=1./255)
+
+    train_gen = train_datagen.flow_from_directory(
+        train_dir,
+        target_size=target_size,
+        color_mode='grayscale',
+        batch_size=batch_size,
+        class_mode='categorical'
+    )
+
+    test_gen = test_datagen.flow_from_directory(
+        test_dir,
+        target_size=target_size,
+        color_mode='grayscale',
+        batch_size=batch_size,
+        class_mode='categorical',
+        shuffle=False
+    )
+
+    return train_gen, test_gen
+
+train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
+num_classes = train_gen.num_classes
 # ---------- DEFINICIÓN DE FUNCIÓN RESNET_LAYER ----------
 def resnet_layer(inputs,num_filters=16,kernel_size=3,strides=1,
                  activation='relu',batch_normalization=True,conv_first=True):
@@ -100,13 +139,7 @@ def lr_schedule(epoch):
         lr *= 1e-1
     return lr
 
-# ---------- CARGA DE CIFAR-10 ----------
-from keras.datasets import cifar10
-(x_train, y_train), (x_test, y_test) = cifar10.load_data()
-x_train = x_train.astype('float32') / 255
-x_test = x_test.astype('float32') / 255
-y_train = keras.utils.to_categorical(y_train, num_classes)
-y_test = keras.utils.to_categorical(y_test, num_classes)
+
 
 # ---------- COMPILACIÓN ----------
 model = resnet_v2(input_shape=input_shape, depth=depth)
@@ -133,30 +166,35 @@ lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
 
 callbacks = [checkpoint, lr_reducer, lr_scheduler]
 
-# ---------- ENTRENAMIENTO ----------
+# ENTRENAMIENTO
 start_time = time.time()
 
 if data_augmentation:
-    datagen = ImageDataGenerator(width_shift_range=0.1,
-                                 height_shift_range=0.1,
-                                 horizontal_flip=True)
-    datagen.fit(x_train)
-    history = model.fit(datagen.flow(x_train, y_train, batch_size=batch_size),
-                        validation_data=(x_test, y_test),
+    # El generador ya tiene augmentación en `train_gen`
+    history = model.fit(train_gen,
+                        validation_data=test_gen,
                         epochs=epochs,
                         verbose=2,
-                        steps_per_epoch=math.ceil(len(x_train) / batch_size),
+                        steps_per_epoch=math.ceil(train_gen.samples / batch_size),
+                        validation_steps=math.ceil(test_gen.samples / batch_size),
                         callbacks=callbacks)
 else:
-    history = model.fit(x_train, y_train,
-                        batch_size=batch_size,
+    history = model.fit(train_gen,
+                        validation_data=test_gen,
                         epochs=epochs,
-                        validation_data=(x_test, y_test),
-                        shuffle=True,
+                        verbose=2,
+                        steps_per_epoch=math.ceil(train_gen.samples / batch_size),
+                        validation_steps=math.ceil(test_gen.samples / batch_size),
                         callbacks=callbacks)
 
 end_time = time.time()
 training_time = end_time - start_time
+
+# EVALUACIÓN FINAL
+scores = model.evaluate(test_gen, verbose=0)
+final_accuracy = scores[1]
+final_loss = scores[0]
+
 
 # ---------- GUARDAR CURVAS ----------
 results_dir = 'resultados_resnetv2'

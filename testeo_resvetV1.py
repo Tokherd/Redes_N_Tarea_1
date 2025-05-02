@@ -22,11 +22,11 @@ epochs = 200
 depth = 20  # Debe cumplir que (depth - 2) % 6 == 0. Ej: 20, 32, 44, 56, 110
 version = 1  # Estamos usando ResNet v1
 
-input_shape = (64, 64, 1)
-target_size = (64, 64)
+input_shape = (128, 128, 1)
+target_size = (128, 128)
 
 # ========== CARGA DE DATOS ==========
-def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=True):
+def crear_generadores(train_dir, test_dir, target_size=(128, 128), batch_size=128, augmentation=True):
     if augmentation:
         train_datagen = ImageDataGenerator(
             rescale=1./255,

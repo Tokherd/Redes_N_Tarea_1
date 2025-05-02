@@ -30,7 +30,7 @@ directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 batch_size = 128
 epochs = 200
-growth_rate = 12
+growth_rate = 20
 depth = 100
 num_dense_blocks = 5
 compression_factors = [0.3, 0.5, 0.7]
@@ -122,7 +122,7 @@ for compression_factor in compression_factors:
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(x)
 
     model = Model(inputs=inputs, outputs=outputs)
-    model.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3), metrics=['accuracy'])
+    model.compile(loss='categorical_crossentropy', optimizer=tf.keras.optimizers.Adam(learning_rate=1e-2), metrics=['accuracy'])
     model.summary()
 
     # ========== CALLBACKS ==========
