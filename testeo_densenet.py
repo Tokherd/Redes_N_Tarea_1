@@ -15,8 +15,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.layers import (Input, Conv2D, BatchNormalization, Activation, Dropout,
-                                     concatenate, AveragePooling2D, Flatten, Dense, GlobalAveragePooling2D,MaxPooling2D)
-from tensorflow.keras.optimizers import RMSprop
+                                     concatenate, AveragePooling2D, Flatten, Dense, GlobalAveragePooling2D, MaxPooling2D)
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from tensorflow.keras.regularizers import l2
@@ -40,8 +39,8 @@ growth_rate = 20
 depth = 100
 num_dense_blocks = 5    
 compression_factors = [0.3, 0.5, 0.7]
-input_shape = (64, 64, 1)
-target_size = (64, 64)
+input_shape = (48, 48, 1)
+target_size = (48, 48)
 
 # ======================== FUNCIONES ========================
 
@@ -59,10 +58,10 @@ class ZScoreNormalizer(tf.keras.layers.Layer):
         return img
 zscore = lambda x: (x - np.mean(x)) / (np.std(x) + 1e-7)
 
-def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=False):
+def crear_generadores_split(train_dir, target_size=(48, 48), batch_size=128, augmentation=True, validation_split=0.2):
     if augmentation:
         train_datagen = ImageDataGenerator(
-            preprocessing_function=zscore,
+            preprocessing_function=ZScoreNormalizer(),  # Usar la clase en lugar de la función
             rotation_range=15,
             width_shift_range=0.15,
             height_shift_range=0.15,
@@ -70,38 +69,39 @@ def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, 
             zoom_range=0.2,
             brightness_range=[0.8, 1.2],
             horizontal_flip=True,
-            fill_mode='nearest'
+            fill_mode='nearest',
+            validation_split=validation_split
         )
     else:
-        train_datagen = ImageDataGenerator(rescale=1/255)
+        train_datagen = ImageDataGenerator(rescale=1/255, validation_split=validation_split)
 
-    test_datagen = ImageDataGenerator(rescale=1/255)
 
     train_gen = train_datagen.flow_from_directory(
         train_dir,
         target_size=target_size,
         color_mode='grayscale',
         batch_size=batch_size,
-        class_mode='categorical'
+        class_mode='categorical',
+        subset='training'
     )
 
-    test_gen = test_datagen.flow_from_directory(
-        test_dir,
+    val_gen = train_datagen.flow_from_directory(
+        train_dir,
         target_size=target_size,
         color_mode='grayscale',
         batch_size=batch_size,
         class_mode='categorical',
-        shuffle=False
+        subset='validation'
     )
 
-    return train_gen, test_gen
+    return train_gen, val_gen
 
 # ======================== GENERADORES Y PESOS ========================
-train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
+train_gen, val_gen = crear_generadores_split(directorio_train, target_size=target_size, batch_size=batch_size, augmentation=True)
 pesos_clase = calcular_pesos_clase(train_gen)
-num_classes = train_gen.num_classes
 steps_per_epoch = len(train_gen)
-validation_steps = len(test_gen)
+validation_steps = len(val_gen)
+num_classes = train_gen.num_classes
 
 # ======================== LOOP PRINCIPAL ========================
 for compression_factor in compression_factors:
@@ -163,11 +163,12 @@ for compression_factor in compression_factors:
     optimizer = Adam(learning_rate=1e-3)
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
+
     # ==== ENTRENAMIENTO ====
     history = model.fit(
         train_gen,
         steps_per_epoch=steps_per_epoch,
-        validation_data=test_gen,
+        validation_data=val_gen,
         validation_steps=validation_steps,
         epochs=epochs,
         callbacks=callbacks,
@@ -175,10 +176,26 @@ for compression_factor in compression_factors:
         verbose=2
     )
 
-    # ==== EVALUACIÓN ====
+    # ==== EVALUACIÓN FINAL ====
     end_time = time.time()
     model.load_weights(best_model_path)
-    scores = model.evaluate(test_gen, steps=validation_steps, verbose=2)
+
+    # Genera el generador de test
+    def crear_generador_test(test_dir, target_size=(48, 48), batch_size=128):
+        test_datagen = ImageDataGenerator(preprocessing_function=zscore)  # Mismo reescalado que en entrenamiento
+        test_gen = test_datagen.flow_from_directory(
+            test_dir,
+            target_size=target_size,
+            color_mode='grayscale',
+            batch_size=batch_size,
+            class_mode='categorical'
+        )
+        return test_gen
+
+    # ======================== GENERADOR DE TEST ========================
+    test_gen = crear_generador_test(directorio_test, target_size=target_size, batch_size=batch_size)
+
+    scores = model.evaluate(test_gen, steps=len(test_gen), verbose=2)
     print(f"[RESULT] Compression {compression_factor} -> Test loss: {scores[0]:.4f}, Test accuracy: {scores[1]:.4f}")
 
     # ==== GUARDADO ====
@@ -223,4 +240,5 @@ for compression_factor in compression_factors:
     del model
     K.clear_session()
     gc.collect()
-    
+
+

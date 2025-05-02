@@ -20,7 +20,7 @@ import time
 # Definición de directorios
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 64
+batch_size = 128
 epochs = 200
 depth = 104  # Profundidad de la red ResNet
 version = 1  # Usamos ResNet v1
