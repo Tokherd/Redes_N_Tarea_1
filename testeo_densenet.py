@@ -21,7 +21,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from tensorflow.keras.regularizers import l2
 from sklearn.utils import class_weight
-
+from tensorflow.keras.preprocessing.image import img_to_array
 # ======================== GPU: Limitar uso de memoria ========================
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -38,7 +38,7 @@ batch_size = 128
 epochs = 200
 growth_rate = 20
 depth = 100
-num_dense_blocks = 5
+num_dense_blocks = 5    
 compression_factors = [0.3, 0.5, 0.7]
 input_shape = (64, 64, 1)
 target_size = (64, 64)
@@ -50,10 +50,19 @@ def calcular_pesos_clase(generator):
     pesos = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(etiquetas), y=etiquetas)
     return dict(enumerate(pesos))
 
+class ZScoreNormalizer(tf.keras.layers.Layer):
+    def call(self, img):
+        img = tf.cast(img, tf.float32)
+        mean, var = tf.nn.moments(img, axes=[0, 1, 2], keepdims=True)
+        std = tf.sqrt(var)
+        img = (img - mean) / (std + 1e-7)
+        return img
+zscore = lambda x: (x - np.mean(x)) / (np.std(x) + 1e-7)
+
 def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=False):
     if augmentation:
         train_datagen = ImageDataGenerator(
-            rescale=1/255,
+            preprocessing_function=zscore,
             rotation_range=15,
             width_shift_range=0.15,
             height_shift_range=0.15,
@@ -107,7 +116,7 @@ for compression_factor in compression_factors:
     best_model_path = os.path.join(save_dir, f'{tag}_best.keras')
     checkpoint = ModelCheckpoint(best_model_path, monitor='val_accuracy', save_best_only=True, verbose=1)
     lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), patience=5, min_lr=5e-7, verbose=1)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
     callbacks = [checkpoint, lr_reducer, early_stopping]
 
     # ==== MODELO ====
