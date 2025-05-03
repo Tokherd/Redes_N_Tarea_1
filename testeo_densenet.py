@@ -5,10 +5,8 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import gc
 import time
-import math
 import numpy as np
 import matplotlib.pyplot as plt
-
 import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
@@ -17,7 +15,7 @@ from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.layers import (Input, Conv2D, BatchNormalization, Activation, Dropout,
                                      concatenate, AveragePooling2D, Flatten, Dense, GlobalAveragePooling2D, MaxPooling2D)
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LearningRateScheduler
 from tensorflow.keras.regularizers import l2
 from sklearn.utils import class_weight
 from tensorflow.keras.preprocessing.image import img_to_array
@@ -39,19 +37,16 @@ growth_rate = 20
 depth = 100
 num_dense_blocks = 5    
 compression_factors = [0.3, 0.5, 0.7]
-input_shape = (48, 48, 1)
-target_size = (48, 48)
+input_shape = (64, 64, 1)
+target_size = (64, 64)
 
 # ======================== FUNCIONES ========================
-
 def calcular_pesos_clase(generator):
     etiquetas = generator.classes
     pesos = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(etiquetas), y=etiquetas)
     return dict(enumerate(pesos))
 
-
-
-def crear_generadores_split(train_dir, target_size=(48, 48), batch_size=256, augmentation=True, validation_split=0.3):
+def crear_generadores_split(train_dir, target_size=(64, 64), batch_size=256, augmentation=True, validation_split=0.3):
     if augmentation:
         train_datagen = ImageDataGenerator(
             rescale=1./255,  # Usar la clase en lugar de la función
@@ -67,7 +62,6 @@ def crear_generadores_split(train_dir, target_size=(48, 48), batch_size=256, aug
         )
     else:
         train_datagen = ImageDataGenerator(rescale=1/255, validation_split=validation_split)
-
 
     train_gen = train_datagen.flow_from_directory(
         train_dir,
@@ -96,6 +90,13 @@ steps_per_epoch = len(train_gen)
 validation_steps = len(val_gen)
 num_classes = train_gen.num_classes
 
+# ======================== LEARNING RATE SCHEDULER ========================
+def lr_schedule(epoch):
+    lr = 3e-3  # Tasa de aprendizaje inicial
+    if epoch > 10:
+        lr = 2e-4  # Reducir la tasa de aprendizaje después de 10 épocas
+    return lr
+
 # ======================== LOOP PRINCIPAL ========================
 for compression_factor in compression_factors:
     print(f"\n=== Entrenando DenseNet con compression_factor = {compression_factor} ===\n")
@@ -110,7 +111,8 @@ for compression_factor in compression_factors:
     checkpoint = ModelCheckpoint(best_model_path, monitor='val_accuracy', save_best_only=True, verbose=1)
     lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), patience=5, min_lr=5e-7, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
-    callbacks = [checkpoint, lr_reducer, early_stopping]
+    lr_scheduler = LearningRateScheduler(lr_schedule)
+    callbacks = [checkpoint, lr_reducer, early_stopping, lr_scheduler]
 
     # ==== MODELO ====
     inputs = Input(shape=input_shape)
@@ -129,7 +131,7 @@ for compression_factor in compression_factors:
             y = Activation('relu')(y)
             y = Conv2D(4 * growth_rate, kernel_size=1, padding='same', kernel_initializer='he_normal',
                        kernel_regularizer=l2(1e-4))(y)
-            y = Dropout(0.3)(y)
+            y = Dropout(0.3)(y)  # Regularización Dropout
             y = BatchNormalization()(y)
             y = Activation('relu')(y)
             y = Conv2D(growth_rate, kernel_size=3, padding='same', kernel_initializer='he_normal',
@@ -142,14 +144,14 @@ for compression_factor in compression_factors:
             y = BatchNormalization()(x)
             y = Conv2D(num_filters_bef_dense_block, kernel_size=1, padding='same', kernel_initializer='he_normal',
                        kernel_regularizer=l2(1e-4))(y)
-            y = Dropout(0.3)(y)
+            y = Dropout(0.3)(y)  # Regularización Dropout
             x = AveragePooling2D(pool_size=2)(y)
 
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
     x = GlobalAveragePooling2D()(x)
     x = Dense(256, activation='relu', kernel_regularizer=l2(1e-4))(x)
-    x = Dropout(0.4)(x)
+    x = Dropout(0.4)(x)  # Regularización Dropout
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(x)
 
     model = Model(inputs=inputs, outputs=outputs)
@@ -175,7 +177,7 @@ for compression_factor in compression_factors:
 
     # Genera el generador de test
     def crear_generador_test(test_dir, target_size=(48, 48), batch_size=128):
-        test_datagen = ImageDataGenerator(rescale=1./255) # Mismo reescalado que en entrenamiento
+        test_datagen = ImageDataGenerator(rescale=1./255)  # Mismo reescalado que en entrenamiento
         test_gen = test_datagen.flow_from_directory(
             test_dir,
             target_size=target_size,
@@ -210,28 +212,22 @@ for compression_factor in compression_factors:
     plt.figure(figsize=(10, 5))
     plt.plot(history.history['loss'], label='Entrenamiento')
     plt.plot(history.history['val_loss'], label='Validación')
-    plt.title(f'Curva de pérdida (Compression {compression_factor})')
+    plt.legend()
     plt.xlabel('Épocas')
     plt.ylabel('Pérdida')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, 'curva_perdida.png'))
-    plt.close()
+    plt.title(f'Pérdida durante el entrenamiento: {tag}')
+    plt.savefig(os.path.join(output_dir, 'loss_plot.png'))
 
     plt.figure(figsize=(10, 5))
     plt.plot(history.history['accuracy'], label='Entrenamiento')
     plt.plot(history.history['val_accuracy'], label='Validación')
-    plt.title(f'Curva de precisión (Compression {compression_factor})')
+    plt.legend()
     plt.xlabel('Épocas')
     plt.ylabel('Precisión')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(output_dir, 'curva_precision.png'))
-    plt.close()
+    plt.title(f'Precisión durante el entrenamiento: {tag}')
+    plt.savefig(os.path.join(output_dir, 'accuracy_plot.png'))
+    
+    gc.collect()  # Limpiar memoria
 
-    # ==== LIBERAR MEMORIA ====
-    del model
-    K.clear_session()
-    gc.collect()
 
 

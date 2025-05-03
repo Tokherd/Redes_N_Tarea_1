@@ -184,7 +184,7 @@ lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
                                min_lr=0.5e-6)
 
 # EarlyStopping
-early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+early_stopping = EarlyStopping(monitor='val_accuracy', patience=20, restore_best_weights=True)
 
 callbacks = [checkpoint, lr_reducer, lr_scheduler, early_stopping]
 
