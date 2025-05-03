@@ -31,14 +31,14 @@ if gpus:
 # ======================== CONFIGURACIÓN ========================
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 256
+batch_size = 64
 epochs = 200
-growth_rate = 20
+growth_rate = 16
 depth = 100
 num_dense_blocks = 5    
 compression_factors = [0.3, 0.5, 0.7]
-input_shape = (64, 64, 1)
-target_size = (64, 64)
+input_shape = (128, 128, 1)
+target_size = (128, 128)
 
 # ======================== FUNCIONES ========================
 def calcular_pesos_clase(generator):
@@ -46,55 +46,59 @@ def calcular_pesos_clase(generator):
     pesos = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(etiquetas), y=etiquetas)
     return dict(enumerate(pesos))
 
-def crear_generadores_split(train_dir, target_size=(64, 64), batch_size=256, augmentation=True, validation_split=0.3):
+def crear_generadores_con_validacion(train_dir, target_size=(128, 128), batch_size=128, augmentation=True, val_split=0.3):
     if augmentation:
-        train_datagen = ImageDataGenerator(
-            rescale=1./255,  # Usar la clase en lugar de la función
+        datagen = ImageDataGenerator(
+            rescale=1./255,
             rotation_range=15,
-            width_shift_range=0.15,
-            height_shift_range=0.15,
-            shear_range=0.15,
-            zoom_range=0.2,
+            width_shift_range=0.3,
+            height_shift_range=0.3,
+            shear_range=0.3,
+            zoom_range=0.4,
             brightness_range=[0.8, 1.2],
             horizontal_flip=True,
             fill_mode='nearest',
-            validation_split=validation_split
+            validation_split=val_split
         )
     else:
-        train_datagen = ImageDataGenerator(rescale=1/255, validation_split=validation_split)
+        datagen = ImageDataGenerator(rescale=1/255, validation_split=val_split)
 
-    train_gen = train_datagen.flow_from_directory(
+    train_gen = datagen.flow_from_directory(
         train_dir,
         target_size=target_size,
         color_mode='grayscale',
         batch_size=batch_size,
         class_mode='categorical',
+        shuffle=True,
         subset='training'
     )
 
-    val_gen = train_datagen.flow_from_directory(
+    val_gen = datagen.flow_from_directory(
         train_dir,
         target_size=target_size,
         color_mode='grayscale',
         batch_size=batch_size,
         class_mode='categorical',
+        shuffle=False,
         subset='validation'
     )
 
     return train_gen, val_gen
 
+
+
 # ======================== GENERADORES Y PESOS ========================
-train_gen, val_gen = crear_generadores_split(directorio_train, target_size=target_size, batch_size=batch_size, augmentation=True)
+train_gen , val_gen = crear_generadores_con_validacion(directorio_train, target_size=target_size, batch_size=batch_size, augmentation=True)
 pesos_clase = calcular_pesos_clase(train_gen)
 steps_per_epoch = len(train_gen)
-validation_steps = len(val_gen)
+
 num_classes = train_gen.num_classes
 
 # ======================== LEARNING RATE SCHEDULER ========================
 def lr_schedule(epoch):
-    lr = 3e-3  # Tasa de aprendizaje inicial
+    lr = 2e-3  # Tasa de aprendizaje inicial
     if epoch > 10:
-        lr = 2e-4  # Reducir la tasa de aprendizaje después de 10 épocas
+        lr = 1e-4  # Reducir la tasa de aprendizaje después de 10 épocas
     return lr
 
 # ======================== LOOP PRINCIPAL ========================
@@ -155,28 +159,30 @@ for compression_factor in compression_factors:
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(x)
 
     model = Model(inputs=inputs, outputs=outputs)
-    optimizer = Adam(learning_rate=2e-3)
+    optimizer = Adam(learning_rate=1e-3)
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
     # ==== ENTRENAMIENTO ====
     history = model.fit(
-        train_gen,
-        steps_per_epoch=steps_per_epoch,
-        validation_data=val_gen,
-        validation_steps=validation_steps,
-        epochs=epochs,
-        callbacks=callbacks,
-        class_weight=pesos_clase,
-        verbose=2
-    )
+    train_gen,
+    steps_per_epoch=len(train_gen),
+    validation_data=val_gen,
+    validation_steps=len(val_gen),
+    epochs=epochs,
+    callbacks=callbacks,
+    class_weight=pesos_clase,
+    verbose=2
+)
+
+
 
     # ==== EVALUACIÓN FINAL ====
     end_time = time.time()
     model.load_weights(best_model_path)
 
     # Genera el generador de test
-    def crear_generador_test(test_dir, target_size=(48, 48), batch_size=128):
+    def crear_generador_test(test_dir, target_size=(128, 128), batch_size=128):
         test_datagen = ImageDataGenerator(rescale=1./255)  # Mismo reescalado que en entrenamiento
         test_gen = test_datagen.flow_from_directory(
             test_dir,
