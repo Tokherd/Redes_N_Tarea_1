@@ -1,6 +1,6 @@
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import math
 import numpy as np
 import tensorflow as tf
@@ -10,10 +10,13 @@ from tensorflow.keras.layers import (Input, Conv2D, MaxPooling2D, Dense, Flatten
                                      BatchNormalization, AveragePooling2D, add)
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler, ReduceLROnPlateau
+from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler, ReduceLROnPlateau, EarlyStopping
 from tensorflow.keras.regularizers import l2
 import matplotlib.pyplot as plt
 import time
+from collections import Counter
+import pandas as pd
+from tensorflow.keras.utils import to_categorical
 
 # ========== CONFIGURACIÓN ==========
 
@@ -64,6 +67,8 @@ def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, 
         shuffle=False
     )
 
+
+
     return train_gen, test_gen
 
 train_gen, test_gen = crear_generadores(directorio_train, directorio_test, target_size=target_size, batch_size=batch_size, augmentation=True)
@@ -72,21 +77,14 @@ num_classes = train_gen.num_classes
 # ========== CÁLCULO DE PESOS DE CLASE ==========
 
 def calcular_pesos_de_clase(train_gen):
-    # Obtener el número total de imágenes y las frecuencias de cada clase
-    class_freqs = np.zeros(train_gen.num_classes)
-    for _, labels in train_gen:
-        for i, label in enumerate(labels):
-            class_freqs += label  # Sumar la cantidad de veces que aparece cada clase
-    
-    # Calcular el peso inverso para cada clase basado en su frecuencia
-    total_images = np.sum(class_freqs)
-    class_weights = total_images / (train_gen.num_classes * class_freqs)
-    
+    labels = train_gen.classes
+    class_totals = Counter(labels)
+    total_samples = len(labels)
+    class_weights = {
+        i: total_samples / (train_gen.num_classes * class_totals[i])
+        for i in class_totals
+    }
     return class_weights
-
-# Obtener los pesos de clase
-class_weights = calcular_pesos_de_clase(train_gen)
-print("Pesos de clase calculados:", class_weights)
 
 # ========== FUNCIONES DE RESNET ==========
 
@@ -185,7 +183,10 @@ lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
                                patience=5,
                                min_lr=0.5e-6)
 
-callbacks = [checkpoint, lr_reducer, lr_scheduler]
+# EarlyStopping
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+callbacks = [checkpoint, lr_reducer, lr_scheduler, early_stopping]
 
 # ========== MEDIR TIEMPO DE ENTRENAMIENTO ==========
 
@@ -197,7 +198,7 @@ history = model.fit(train_gen,
                     epochs=epochs,
                     validation_data=test_gen,
                     callbacks=callbacks,
-                    class_weight=class_weights,  # Agregar los pesos de clase
+                    class_weight=calcular_pesos_de_clase(train_gen),  # Agregar los pesos de clase
                     verbose=2)
 
 end_time = time.time()
@@ -220,11 +221,9 @@ np.save(os.path.join(output_dir, 'test_loss.npy'), scores[0])
 np.save(os.path.join(output_dir, 'test_accuracy.npy'), scores[1])
 np.save(os.path.join(output_dir, 'execution_time.npy'), execution_time)
 
-# Guardar historial de entrenamiento
-np.save(os.path.join(output_dir, 'train_loss.npy'), history.history['loss'])
-np.save(os.path.join(output_dir, 'val_loss.npy'), history.history['val_loss'])
-np.save(os.path.join(output_dir, 'train_acc.npy'), history.history['accuracy'])
-np.save(os.path.join(output_dir, 'val_acc.npy'), history.history['val_accuracy'])
+# Guardar historial de entrenamiento como CSV
+history_df = pd.DataFrame(history.history)
+history_df.to_csv(os.path.join(output_dir, 'history.csv'))
 
 # ========== GRAFICAR CURVAS ==========
 
@@ -251,3 +250,4 @@ plt.legend()
 plt.grid(True)
 plt.savefig(os.path.join(output_dir, 'curva_precision.png'))
 plt.close()
+

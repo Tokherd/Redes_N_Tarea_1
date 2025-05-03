@@ -33,7 +33,7 @@ if gpus:
 # ======================== CONFIGURACIÓN ========================
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 128
+batch_size = 256
 epochs = 200
 growth_rate = 20
 depth = 100
@@ -49,19 +49,12 @@ def calcular_pesos_clase(generator):
     pesos = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(etiquetas), y=etiquetas)
     return dict(enumerate(pesos))
 
-class ZScoreNormalizer(tf.keras.layers.Layer):
-    def call(self, img):
-        img = tf.cast(img, tf.float32)
-        mean, var = tf.nn.moments(img, axes=[0, 1, 2], keepdims=True)
-        std = tf.sqrt(var)
-        img = (img - mean) / (std + 1e-7)
-        return img
-zscore = lambda x: (x - np.mean(x)) / (np.std(x) + 1e-7)
 
-def crear_generadores_split(train_dir, target_size=(48, 48), batch_size=128, augmentation=True, validation_split=0.2):
+
+def crear_generadores_split(train_dir, target_size=(48, 48), batch_size=256, augmentation=True, validation_split=0.3):
     if augmentation:
         train_datagen = ImageDataGenerator(
-            preprocessing_function=ZScoreNormalizer(),  # Usar la clase en lugar de la función
+            rescale=1./255,  # Usar la clase en lugar de la función
             rotation_range=15,
             width_shift_range=0.15,
             height_shift_range=0.15,
@@ -160,7 +153,7 @@ for compression_factor in compression_factors:
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(x)
 
     model = Model(inputs=inputs, outputs=outputs)
-    optimizer = Adam(learning_rate=1e-3)
+    optimizer = Adam(learning_rate=2e-3)
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
     model.summary()
 
@@ -182,7 +175,7 @@ for compression_factor in compression_factors:
 
     # Genera el generador de test
     def crear_generador_test(test_dir, target_size=(48, 48), batch_size=128):
-        test_datagen = ImageDataGenerator(preprocessing_function=zscore)  # Mismo reescalado que en entrenamiento
+        test_datagen = ImageDataGenerator(rescale=1./255) # Mismo reescalado que en entrenamiento
         test_gen = test_datagen.flow_from_directory(
             test_dir,
             target_size=target_size,
