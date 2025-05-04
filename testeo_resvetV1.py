@@ -127,7 +127,7 @@ def resnet_layer(inputs, num_filters=16, kernel_size=3, strides=1,
         x = conv(x)
     return x
 
-def resnet_v1(input_shape, depth, num_classes=10):
+def resnet_v1(input_shape, depth, num_classes=7):
     if (depth - 2) % 6 != 0:
         raise ValueError('La profundidad debe ser 6n+2 (por ejemplo: 20, 32, 44, 56, 110)')
 
