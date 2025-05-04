@@ -23,7 +23,7 @@ from tensorflow.keras.utils import to_categorical
 # Definición de directorios
 directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
-batch_size = 128
+batch_size = 64
 epochs = 200
 depth = 104  # Profundidad de la red ResNet
 version = 1  # Usamos ResNet v1
@@ -37,14 +37,16 @@ target_size = (64, 64)
 def crear_generadores(train_dir, test_dir, target_size=(64, 64), batch_size=64, augmentation=True):
     if augmentation:
         train_datagen = ImageDataGenerator(
-            rescale=1./255,
-            width_shift_range=0.1,
-            height_shift_range=0.1,
-            horizontal_flip=True,
-            rotation_range=20,         # Rotación aleatoria de las imágenes
-            zoom_range=0.2,            # Zoom aleatorio
-            brightness_range=[0.8, 1.2] # Ajuste aleatorio del brillo
-        )
+        rescale=1./255,
+        rotation_range=10,            
+        width_shift_range=0.05,       
+        height_shift_range=0.05,      
+        shear_range=0.05,             
+        zoom_range=0.1,               
+        brightness_range=[0.9, 1.1], 
+        horizontal_flip=True,
+        fill_mode='nearest',
+        validation_split=0.3)
     else:
         train_datagen = ImageDataGenerator(rescale=1./255)
 

@@ -18,8 +18,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LearningRateScheduler
 from tensorflow.keras.regularizers import l2
 from sklearn.utils import class_weight
-from tensorflow.keras.preprocessing.image import img_to_array
-from tensorflow.keras.callbacks import LearningRateScheduler
+from tensorflow.keras.losses import CategoricalCrossentropy
 # ======================== GPU: Limitar uso de memoria ========================
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -34,13 +33,15 @@ directorio_train = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/train'
 directorio_test = '/home/cursos/ima543_2025_1/ima543_share/Datasets/FER/test'
 batch_size = 64
 epochs = 200
-growth_rate = 12    
+growth_rate = 16    
 depth = 100
-num_dense_blocks = 3    
+num_dense_blocks = 5    
 compression_factors = [0.3, 0.5, 0.7]
 input_shape = (64, 64, 1)
 target_size = (64, 64)
 l2_value = 1e-3   
+label_smoothing_value = 0.05
+
 # ======================== FUNCIONES ========================
 def calcular_pesos_clase(generator):
     etiquetas = generator.classes
@@ -51,16 +52,17 @@ def crear_generadores_con_validacion(train_dir, target_size=(64, 64), batch_size
     if augmentation:
         datagen = ImageDataGenerator(
             rescale=1./255,
-            rotation_range=15,
-            width_shift_range=0.1,
-            height_shift_range=0.1,
-            shear_range=0.1,
-            zoom_range=0.2,
-            brightness_range=[0.8, 1.2],
-            horizontal_flip=True,
-            fill_mode='nearest',
-            validation_split=val_split
-        )
+        rotation_range=10,            
+        width_shift_range=0.05,       
+        height_shift_range=0.05,      
+        shear_range=0.05,             
+        zoom_range=0.1,               
+        brightness_range=[0.9, 1.1], 
+        horizontal_flip=True,
+        fill_mode='nearest',
+        validation_split=0.3
+)
+
     else:
         datagen = ImageDataGenerator(rescale=1/255, validation_split=val_split)
 
@@ -95,7 +97,7 @@ num_classes = train_gen.num_classes
 # ======================== LEARNING RATE SCHEDULER ========================
 def scheduler(epoch, lr):
     if epoch < 10:
-        return 1e-3  # o 5e-4
+        return 1e-3
     return lr * tf.math.exp(-0.1)
 
 lr_scheduler = LearningRateScheduler(scheduler)
@@ -159,10 +161,9 @@ for compression_factor in compression_factors:
     x = Dropout(0.5)(x)
     outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal', kernel_regularizer=l2(l2_value))(x)
 
-    
     model = Model(inputs=inputs, outputs=outputs)
     optimizer = Adam(learning_rate=1e-3, amsgrad=True)
-    loss_fn = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05)
+    loss_fn = CategoricalCrossentropy(label_smoothing=label_smoothing_value)
     model.compile(loss=loss_fn, optimizer=optimizer, metrics=['accuracy'])
 
     model.summary()
@@ -231,6 +232,7 @@ for compression_factor in compression_factors:
     plt.savefig(os.path.join(output_dir, 'accuracy_plot.png'))
 
     gc.collect()
+
 
 
 
