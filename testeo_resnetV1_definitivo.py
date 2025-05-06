@@ -1,6 +1,6 @@
 import os
 os.environ['TF_USE_CUDNN_BATCHNORM'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import numpy as np
 import tensorflow as tf
@@ -174,11 +174,16 @@ history = model.fit(
 end_time = time.time()
 
 # ========== EVALUACIÓN Y GUARDADO ==========
+
 scores = model.evaluate(test_gen, verbose=2)
 print("Test loss:", scores[0])
 print("Test accuracy:", scores[1])
 
 output_dir = "resultados_resnetv1"
+os.makedirs(output_dir, exist_ok=True)
+
+output_dir = "resultados_resnetv1"
+model.save(os.path.join(output_dir, 'modelo_resnetv1_completo.h5'))
 os.makedirs(output_dir, exist_ok=True)
 np.save(os.path.join(output_dir, 'test_loss.npy'), scores[0])
 np.save(os.path.join(output_dir, 'test_accuracy.npy'), scores[1])
